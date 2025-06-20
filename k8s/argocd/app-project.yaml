@@ -1,0 +1,61 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: pdf-comparator
+  namespace: openshift-gitops
+  labels:
+    app.kubernetes.io/name: pdf-comparator
+spec:
+  description: |
+    PDF Comparator AI - Public Demo Project
+    Author: Carlos Estay (cestay@redhat.com)
+    Repository: https://github.com/pkstaz/pdf-comparator-ai
+    
+    This is a public demo showcasing PDF comparison using vLLM with 
+    Granite 3.1 model, fully configurable via ArgoCD parameters.
+  
+  sourceRepos:
+  - 'https://github.com/pkstaz/pdf-comparator-ai'
+  - 'https://github.com/pkstaz/*'
+  
+  destinations:
+  - namespace: 'pdf-comparator-*'
+    server: '*'
+  - namespace: 'vllm-*'
+    server: '*'
+  
+  clusterResourceWhitelist:
+  - group: ''
+    kind: Namespace
+  - group: 'route.openshift.io'
+    kind: Route
+  - group: 'monitoring.coreos.com'
+    kind: ServiceMonitor
+  - group: 'monitoring.coreos.com'
+    kind: PrometheusRule
+  
+  namespaceResourceWhitelist:
+  - group: '*'
+    kind: '*'
+  
+  roles:
+  - name: admin
+    policies:
+    - p, proj:pdf-comparator:admin, *, *, pdf-comparator/*, allow
+    groups:
+    - system:cluster-admins
+  
+  - name: developer
+    policies:
+    - p, proj:pdf-comparator:developer, applications, get, pdf-comparator/*, allow
+    - p, proj:pdf-comparator:developer, applications, sync, pdf-comparator/*, allow
+    - p, proj:pdf-comparator:developer, applications, action/*, pdf-comparator/*, allow
+    groups:
+    - pdf-comparator-developers
+  
+  - name: viewer
+    policies:
+    - p, proj:pdf-comparator:viewer, applications, get, pdf-comparator/*, allow
+    groups:
+    - pdf-comparator-viewers
+    - system:authenticated

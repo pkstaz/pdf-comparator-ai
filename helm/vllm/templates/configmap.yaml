@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "vllm.fullname" . }}-config
+  labels:
+    {{- include "vllm.labels" . | nindent 4 }}
+data:
+  model_config.yaml: |
+    model:
+      name: {{ .Values.model.name }}
+      huggingface_name: {{ .Values.model.huggingfaceName }}
+      dtype: {{ .Values.model.dtype }}
+      trust_remote_code: {{ .Values.model.trustRemoteCode }}
+      download_dir: {{ .Values.model.downloadDir }}
+      
+    serving:
+      max_model_len: {{ .Values.deployment.maxModelLen }}
+      gpu_memory_utilization: {{ .Values.deployment.gpuMemoryUtilization }}
+      max_num_seqs: {{ .Values.deployment.maxNumSeqs }}
+      max_num_batched_tokens: {{ .Values.deployment.maxNumBatchedTokens }}
+      enable_prefix_caching: {{ .Values.deployment.enablePrefixCaching }}
+      enable_chunked_prefill: {{ .Values.deployment.enableChunkedPrefill }}
+      
+    api:
+      api_key_required: {{ .Values.api.requireKey }}
+      cors_allow_origins: {{ .Values.api.corsAllowOrigins | quote }}
+      cors_allow_methods: {{ .Values.api.corsAllowMethods | quote }}
+      cors_allow_headers: {{ .Values.api.corsAllowHeaders | quote }}

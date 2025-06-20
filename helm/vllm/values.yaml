@@ -1,0 +1,90 @@
+# Default values for vLLM service
+# All values can be overridden via ArgoCD parameters
+
+# Model Configuration
+model:
+  name: granite-3.1-8b-instruct
+  huggingfaceName: ibm-granite/granite-3.1-8b-instruct
+  dtype: auto
+  trustRemoteCode: true
+  downloadDir: /models
+
+# Deployment Configuration  
+deployment:
+  replicaCount: 1
+  
+  image:
+    repository: vllm/vllm-openai
+    tag: latest
+    pullPolicy: Always
+  
+  # GPU Configuration
+  gpuMemoryUtilization: 0.95
+  maxNumSeqs: 256
+  maxModelLen: 8192
+  maxNumBatchedTokens: 32768
+  
+  # Performance tuning
+  enablePrefixCaching: true
+  enableChunkedPrefill: true
+
+# Resources
+resources:
+  requests:
+    memory: "16Gi"
+    cpu: "4"
+    nvidia.com/gpu: 1
+  limits:
+    memory: "32Gi"
+    cpu: "8"
+    nvidia.com/gpu: 1
+
+# Service Configuration
+service:
+  type: ClusterIP
+  port: 8000
+  annotations: {}
+
+# API Configuration
+api:
+  key: "your-vllm-api-key"
+  requireKey: true
+  corsAllowOrigins: "*"
+  corsAllowMethods: "*"
+  corsAllowHeaders: "*"
+
+# Storage
+persistence:
+  enabled: true
+  storageClass: fast-ssd
+  accessMode: ReadWriteOnce
+  size: 100Gi
+  mountPath: /root/.cache
+
+# Node Selection
+nodeSelector:
+  node.openshift.io/gpu: "true"
+
+tolerations:
+  - key: nvidia.com/gpu
+    operator: Exists
+    effect: NoSchedule
+
+# Monitoring
+monitoring:
+  enabled: true
+  port: 8000
+  path: /metrics
+
+# Health Checks
+livenessProbe:
+  enabled: true
+  initialDelaySeconds: 600
+  periodSeconds: 30
+  timeoutSeconds: 10
+
+readinessProbe:
+  enabled: true
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5

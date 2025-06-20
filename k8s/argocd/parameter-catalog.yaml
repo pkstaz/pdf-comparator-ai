@@ -1,0 +1,115 @@
+# Complete catalog of all configurable parameters via ArgoCD
+# This file serves as documentation and can be used as reference
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pdf-comparator-parameter-catalog
+  namespace: openshift-gitops
+  labels:
+    app.kubernetes.io/name: pdf-comparator
+    app.kubernetes.io/component: configuration
+data:
+  parameters.yaml: |
+    # PDF Comparator AI - ArgoCD Parameter Catalog
+    # All these parameters can be modified via ArgoCD UI or CLI
+    
+    # Application Parameters
+    app:
+      replicaCount: "2"                    # Number of replicas (1-10)
+      image:
+        repository: "image-registry.openshift-image-registry.svc:5000/pdf-comparator/pdf-comparator-ai"
+        tag: "latest"                      # Image tag (latest, v2.0.0, etc.)
+        pullPolicy: "Always"               # Always, IfNotPresent, Never
+      service:
+        type: "ClusterIP"                  # ClusterIP, NodePort, LoadBalancer
+        port: "8000"                       # API port
+        metricsPort: "9090"                # Metrics port
+      resources:
+        requests:
+          memory: "512Mi"                  # Min memory (256Mi-4Gi)
+          cpu: "250m"                      # Min CPU (100m-2000m)
+        limits:
+          memory: "2Gi"                    # Max memory (512Mi-8Gi)
+          cpu: "1000m"                     # Max CPU (250m-4000m)
+    
+    # vLLM Configuration
+    vllm:
+      enabled: "true"                      # Enable vLLM integration
+      endpoint: "http://vllm-service:8000" # vLLM service endpoint
+      endpointInternal: ""                 # Internal endpoint (optional)
+      model:
+        name: "granite-3.1-8b-instruct"   # Model identifier
+        huggingfaceName: "ibm-granite/granite-3.1-8b-instruct"
+        dtype: "auto"                      # auto, float16, bfloat16
+        maxTokens: "2048"                  # Max tokens (512-8192)
+        temperature: "0.3"                 # Temperature (0.0-1.0)
+        topP: "0.95"                       # Top-p sampling (0.0-1.0)
+        frequencyPenalty: "0.0"            # Frequency penalty (0.0-2.0)
+        presencePenalty: "0.0"             # Presence penalty (0.0-2.0)
+      api:
+        key: "your-api-key"                # API key
+        requireKey: "true"                 # Require API key
+    
+    # Redis Configuration
+    redis:
+      enabled: "true"                      # Enable Redis caching
+      host: "redis-service"                # Redis host
+      port: "6379"                       # Redis port
+      password: ""                         # Redis password
+      db: "0"                             # Redis database
+    
+    # MinIO Configuration
+    minio:
+      enabled: "true"                      # Enable MinIO storage
+      endpoint: "minio-service:9000"       # MinIO endpoint
+      accessKey: "minioadmin"              # Access key
+      secretKey: "minioadmin"              # Secret key
+      bucketName: "pdf-documents"          # Bucket name
+      secure: "false"                      # Use HTTPS
+    
+    # Application Settings
+    config:
+      logLevel: "INFO"                     # DEBUG, INFO, WARNING, ERROR
+      maxPdfSizeMb: "50"                   # Max PDF size in MB (1-100)
+      defaultChunkSize: "1000"             # Text chunk size (500-2000)
+      chunkOverlap: "200"                  # Chunk overlap (0-500)
+      similarityThreshold: "0.7"           # Similarity threshold (0.0-1.0)
+      maxAnalysisTimeSeconds: "300"        # Max analysis time (60-600)
+      supportedLanguages: "{es,en,pt}"     # Supported languages
+      
+      # Feature Flags
+      features:
+        enableCaching: "true"              # Enable result caching
+        enableMetrics: "true"              # Enable Prometheus metrics
+        enableTracing: "true"              # Enable distributed tracing
+        enableSemanticAnalysis: "true"     # Enable semantic analysis
+        enableStructuralAnalysis: "true"   # Enable structural analysis
+        enableDebugEndpoints: "false"      # Enable debug endpoints
+      
+      # Performance Settings
+      performance:
+        workers: "1"                       # Number of workers (1-4)
+        maxConcurrentAnalyses: "10"        # Max concurrent analyses (1-50)
+    
+    # Route Configuration
+    route:
+      enabled: "true"                      # Create OpenShift route
+      host: ""                            # Custom hostname (auto-generated if empty)
+      tls:
+        enabled: "true"                    # Enable TLS
+        termination: "edge"                # edge, passthrough, reencrypt
+        insecureEdgeTerminationPolicy: "Redirect"  # Allow, Redirect, None
+    
+    # Autoscaling
+    autoscaling:
+      enabled: "false"                     # Enable HPA
+      minReplicas: "2"                     # Min replicas (1-10)
+      maxReplicas: "10"                    # Max replicas (2-50)
+      targetCPUUtilizationPercentage: "70" # Target CPU (50-90)
+      targetMemoryUtilizationPercentage: "80" # Target memory (50-90)
+    
+    # Monitoring
+    monitoring:
+      enabled: "true"                      # Enable ServiceMonitor
+      interval: "30s"                      # Scrape interval
+      path: "/metrics"                     # Metrics path

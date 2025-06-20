@@ -1,0 +1,118 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "vllm.fullname" . }}
+  labels:
+    {{- include "vllm.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.deployment.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "vllm.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- if .Values.monitoring.enabled }}
+        prometheus.io/scrape: "true"
+        prometheus.io/port: {{ .Values.monitoring.port | quote }}
+        prometheus.io/path: {{ .Values.monitoring.path }}
+        {{- end }}
+      labels:
+        {{- include "vllm.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "vllm.serviceAccountName" . }}
+      containers:
+      - name: vllm
+        image: "{{ .Values.deployment.image.repository }}:{{ .Values.deployment.image.tag }}"
+        imagePullPolicy: {{ .Values.deployment.image.pullPolicy }}
+        command: ["python", "-m", "vllm.entrypoints.openai.api_server"]
+        args:
+          - "--model"
+          - "{{ .Values.model.huggingfaceName }}"
+          - "--dtype"
+          - "{{ .Values.model.dtype }}"
+          - "--api-key"
+          - "$(VLLM_API_KEY)"
+          - "--host"
+          - "0.0.0.0"
+          - "--port"
+          - "{{ .Values.service.port }}"
+          - "--max-model-len"
+          - "{{ .Values.deployment.maxModelLen }}"
+          - "--gpu-memory-utilization"
+          - "{{ .Values.deployment.gpuMemoryUtilization }}"
+          - "--max-num-seqs"
+          - "{{ .Values.deployment.maxNumSeqs }}"
+          {{- if .Values.model.trustRemoteCode }}
+          - "--trust-remote-code"
+          {{- end }}
+          {{- if .Values.deployment.enablePrefixCaching }}
+          - "--enable-prefix-caching"
+          {{- end }}
+          {{- if .Values.deployment.enableChunkedPrefill }}
+          - "--enable-chunked-prefill"
+          {{- end }}
+        ports:
+        - name: http
+          containerPort: {{ .Values.service.port }}
+          protocol: TCP
+        env:
+        - name: VLLM_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "vllm.fullname" . }}-secret
+              key: api-key
+        - name: HF_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "vllm.fullname" . }}-secret
+              key: hf-token
+              optional: true
+        - name: CUDA_VISIBLE_DEVICES
+          value: "0"
+        resources:
+          {{- toYaml .Values.resources | nindent 10 }}
+        volumeMounts:
+        - name: cache
+          mountPath: {{ .Values.persistence.mountPath }}
+        - name: shm
+          mountPath: /dev/shm
+        {{- if .Values.livenessProbe.enabled }}
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: http
+          initialDelaySeconds: {{ .Values.livenessProbe.initialDelaySeconds }}
+          periodSeconds: {{ .Values.livenessProbe.periodSeconds }}
+          timeoutSeconds: {{ .Values.livenessProbe.timeoutSeconds }}
+        {{- end }}
+        {{- if .Values.readinessProbe.enabled }}
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: http
+          initialDelaySeconds: {{ .Values.readinessProbe.initialDelaySeconds }}
+          periodSeconds: {{ .Values.readinessProbe.periodSeconds }}
+          timeoutSeconds: {{ .Values.readinessProbe.timeoutSeconds }}
+        {{- end }}
+      volumes:
+      - name: cache
+        {{- if .Values.persistence.enabled }}
+        persistentVolumeClaim:
+          claimName: {{ include "vllm.fullname" . }}-cache
+        {{- else }}
+        emptyDir: {}
+        {{- end }}
+      - name: shm
+        emptyDir:
+          medium: Memory
+          sizeLimit: 16Gi
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

@@ -1,0 +1,189 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: pdf-comparator-appset
+  namespace: openshift-gitops
+  labels:
+    app.kubernetes.io/name: pdf-comparator
+    app.kubernetes.io/part-of: pdf-comparator-ai
+spec:
+  generators:
+  - list:
+      elements:
+      - env: dev
+        namespace: pdf-comparator-dev
+        cluster: https://kubernetes.default.svc
+      - env: staging
+        namespace: pdf-comparator-staging
+        cluster: https://kubernetes.default.svc
+      - env: prod
+        namespace: pdf-comparator-prod
+        cluster: https://kubernetes.default.svc
+  template:
+    metadata:
+      name: '{{env}}-pdf-comparator'
+      labels:
+        environment: '{{env}}'
+        app: pdf-comparator
+        app.kubernetes.io/name: pdf-comparator
+        app.kubernetes.io/instance: '{{env}}'
+    spec:
+      project: pdf-comparator
+      source:
+        repoURL: https://github.com/pkstaz/pdf-comparator-ai
+        targetRevision: master
+        path: helm/pdf-comparator
+        helm:
+          valueFiles:
+          - values.yaml
+          - values-{{env}}.yaml
+          # All parameters can be overridden from ArgoCD UI or CLI
+          parameters:
+          # Application Configuration
+          - name: app.replicaCount
+            value: "2"
+          - name: app.image.repository
+            value: "image-registry.openshift-image-registry.svc:5000/pdf-comparator/pdf-comparator-ai"
+          - name: app.image.tag
+            value: "latest"
+          
+          # vLLM Configuration
+          - name: vllm.enabled
+            value: "true"
+          - name: vllm.endpoint
+            value: "http://vllm-service:8000"
+          - name: vllm.model.name
+            value: "granite-3.1-8b-instruct"
+          - name: vllm.model.huggingfaceName
+            value: "ibm-granite/granite-3.1-8b-instruct"
+          - name: vllm.model.maxTokens
+            value: "2048"
+          - name: vllm.model.temperature
+            value: "0.3"
+          - name: vllm.model.topP
+            value: "0.95"
+          - name: vllm.model.frequencyPenalty
+            value: "0.0"
+          - name: vllm.model.presencePenalty
+            value: "0.0"
+          
+          # API Keys (should use sealed-secrets in production)
+          - name: vllm.api.key
+            value: "your-api-key-here"
+          - name: vllm.api.requireKey
+            value: "true"
+          
+          # Redis Configuration
+          - name: redis.enabled
+            value: "true"
+          - name: redis.host
+            value: "redis-service"
+          - name: redis.port
+            value: "6379"
+          - name: redis.password
+            value: ""
+          
+          # MinIO Configuration
+          - name: minio.enabled
+            value: "true"
+          - name: minio.endpoint
+            value: "minio-service:9000"
+          - name: minio.accessKey
+            value: "minioadmin"
+          - name: minio.secretKey
+            value: "minioadmin"
+          - name: minio.bucketName
+            value: "pdf-documents"
+          
+          # Application Settings
+          - name: config.logLevel
+            value: "INFO"
+          - name: config.maxPdfSizeMb
+            value: "50"
+          - name: config.defaultChunkSize
+            value: "1000"
+          - name: config.chunkOverlap
+            value: "200"
+          - name: config.similarityThreshold
+            value: "0.7"
+          - name: config.maxAnalysisTimeSeconds
+            value: "300"
+          - name: config.supportedLanguages
+            value: "{es,en,pt}"
+          
+          # Feature Flags
+          - name: config.features.enableCaching
+            value: "true"
+          - name: config.features.enableMetrics
+            value: "true"
+          - name: config.features.enableTracing
+            value: "true"
+          - name: config.features.enableSemanticAnalysis
+            value: "true"
+          - name: config.features.enableStructuralAnalysis
+            value: "true"
+          - name: config.features.enableDebugEndpoints
+            value: "false"
+          
+          # Performance Settings
+          - name: config.performance.workers
+            value: "1"
+          - name: config.performance.maxConcurrentAnalyses
+            value: "10"
+          
+          # Resources
+          - name: app.resources.requests.memory
+            value: "512Mi"
+          - name: app.resources.requests.cpu
+            value: "250m"
+          - name: app.resources.limits.memory
+            value: "2Gi"
+          - name: app.resources.limits.cpu
+            value: "1000m"
+          
+          # Autoscaling
+          - name: autoscaling.enabled
+            value: "false"
+          - name: autoscaling.minReplicas
+            value: "2"
+          - name: autoscaling.maxReplicas
+            value: "10"
+          - name: autoscaling.targetCPUUtilizationPercentage
+            value: "70"
+          
+          # Route Configuration
+          - name: route.enabled
+            value: "true"
+          - name: route.host
+            value: ""
+          - name: route.tls.enabled
+            value: "true"
+          
+          # Monitoring
+          - name: monitoring.enabled
+            value: "true"
+          - name: monitoring.interval
+            value: "30s"
+      destination:
+        server: '{{cluster}}'
+        namespace: '{{namespace}}'
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+        - CreateNamespace=true
+        - ServerSideApply=true
+        - RespectIgnoreDifferences=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 5s
+            factor: 2
+            maxDuration: 3m
+      revisionHistoryLimit: 3
+      ignoreDifferences:
+      - group: apps
+        kind: Deployment
+        jsonPointers:
+        - /spec/replicas

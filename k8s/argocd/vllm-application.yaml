@@ -1,0 +1,94 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: vllm-granite
+  namespace: openshift-gitops
+  labels:
+    app.kubernetes.io/name: vllm
+    app.kubernetes.io/part-of: pdf-comparator-ai
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  project: pdf-comparator
+  source:
+    repoURL: https://github.com/pkstaz/pdf-comparator-ai
+    targetRevision: master
+    path: helm/vllm
+    helm:
+      parameters:
+      # Model Configuration - All editable from ArgoCD
+      - name: model.name
+        value: "granite-3.1-8b-instruct"
+      - name: model.huggingfaceName
+        value: "ibm-granite/granite-3.1-8b-instruct"
+      - name: model.dtype
+        value: "auto"
+      - name: model.trustRemoteCode
+        value: "true"
+      
+      # Deployment Configuration
+      - name: deployment.replicaCount
+        value: "1"
+      - name: deployment.image.repository
+        value: "vllm/vllm-openai"
+      - name: deployment.image.tag
+        value: "latest"
+      
+      # GPU Configuration
+      - name: deployment.gpuMemoryUtilization
+        value: "0.95"
+      - name: deployment.maxNumSeqs
+        value: "256"
+      - name: deployment.maxModelLen
+        value: "8192"
+      - name: deployment.maxNumBatchedTokens
+        value: "32768"
+      
+      # Resources
+      - name: resources.requests.memory
+        value: "16Gi"
+      - name: resources.requests.cpu
+        value: "4"
+      - name: resources.requests.gpu
+        value: "1"
+      - name: resources.limits.memory
+        value: "32Gi"
+      - name: resources.limits.cpu
+        value: "8"
+      - name: resources.limits.gpu
+        value: "1"
+      
+      # API Configuration
+      - name: api.key
+        value: "your-vllm-api-key"
+      - name: api.requireKey
+        value: "true"
+      - name: api.corsAllowOrigins
+        value: "*"
+      
+      # Service Configuration
+      - name: service.type
+        value: "ClusterIP"
+      - name: service.port
+        value: "8000"
+      
+      # Monitoring
+      - name: monitoring.enabled
+        value: "true"
+      - name: monitoring.port
+        value: "8000"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: vllm-prod
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m

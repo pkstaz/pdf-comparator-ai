@@ -1,0 +1,15 @@
+apiVersion: v2
+name: vllm
+description: vLLM service for Granite 3.1 model inference
+type: application
+version: 1.0.0
+appVersion: "latest"
+keywords:
+  - vllm
+  - llm
+  - granite
+  - ai
+  - inference
+maintainers:
+  - name: Carlos Estay
+    email: cestay@redhat.com
