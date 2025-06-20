@@ -115,8 +115,9 @@ cd pdf-comparator-ai
 #### Option B: With Custom Granite Endpoint
 ```bash
 # Set your Granite model endpoint
-export GRANITE_ENDPOINT="http://your-granite-service.your-namespace.svc.cluster.local:8000"
-export GRANITE_MODEL_NAME="granite-3.1-8b-instruct"
+export GRANITE_ENDPOINT="http://granite-3-1-8b-instruct-predictor.demo-models-deploy.svc.cluster.local"
+export GRANITE_MODEL_NAME="granite-3-1-8b-instruct"
+export VLLM_API_KEY="EMPTY" 
 
 # Deploy
 ./deploy-demo.sh deploy

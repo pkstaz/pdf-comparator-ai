@@ -204,7 +204,7 @@ deploy_application() {
     
     # First, create a ConfigMap with the demo application code
     print_info "Creating demo application code..."
-    cat <<'EOF' | oc apply -f - -n ${DEMO_NAMESPACE}
+    cat <<EOF | oc apply -f - -n ${DEMO_NAMESPACE}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -216,9 +216,16 @@ data:
     from fastapi import FastAPI, File, UploadFile, Form
     from fastapi.responses import HTMLResponse, JSONResponse
     import uvicorn
+    import httpx
     import os
+    import json
     
     app = FastAPI(title="PDF Comparator AI Demo")
+    
+    # Get configuration from environment
+    GRANITE_ENDPOINT = os.getenv("VLLM_ENDPOINT", "http://granite-service:8000")
+    GRANITE_MODEL = os.getenv("VLLM_MODEL_NAME", "granite-3.1-8b-instruct")
+    API_KEY = os.getenv("VLLM_API_KEY", "demo-api-key")
     
     # HTML template for the web interface
     html_template = """
@@ -271,10 +278,26 @@ data:
                 font-size: 16px;
             }
             .btn:hover {
-                background-color: #1e3a8a;
+                background-color: #2c5aa0;
+            }
+            .btn:disabled {
+                background-color: #ccc;
+                cursor: not-allowed;
             }
             .info-box {
                 background-color: #e3f2fd;
+                padding: 15px;
+                border-radius: 5px;
+                margin: 20px 0;
+            }
+            .success-box {
+                background-color: #c8e6c9;
+                padding: 15px;
+                border-radius: 5px;
+                margin: 20px 0;
+            }
+            .error-box {
+                background-color: #ffcdd2;
                 padding: 15px;
                 border-radius: 5px;
                 margin: 20px 0;
@@ -286,6 +309,37 @@ data:
                 font-family: monospace;
                 margin: 5px 0;
             }
+            .status-indicator {
+                display: inline-block;
+                width: 10px;
+                height: 10px;
+                border-radius: 50%;
+                margin-right: 5px;
+            }
+            .status-connected {
+                background-color: #4caf50;
+            }
+            .status-disconnected {
+                background-color: #f44336;
+            }
+            #loading {
+                display: none;
+                text-align: center;
+                margin: 20px 0;
+            }
+            .spinner {
+                border: 4px solid #f3f3f3;
+                border-top: 4px solid #1E3A8A;
+                border-radius: 50%;
+                width: 40px;
+                height: 40px;
+                animation: spin 1s linear infinite;
+                margin: 0 auto;
+            }
+            @keyframes spin {
+                0% { transform: rotate(0deg); }
+                100% { transform: rotate(360deg); }
+            }
         </style>
     </head>
     <body>
@@ -295,31 +349,37 @@ data:
             
             <div class="info-box">
                 <h3>ℹ️ Demo Information</h3>
-                <p>This is a demo deployment showcasing PDF comparison capabilities using:</p>
+                <p>This demo showcases PDF comparison capabilities using:</p>
                 <ul>
                     <li>IBM Granite 3.1 model via vLLM</li>
                     <li>LangChain for AI orchestration</li>
                     <li>Multiple analysis types (Basic, Semantic, AI-powered)</li>
                 </ul>
-                <p><strong>Granite Endpoint:</strong> <span class="endpoint-info">${GRANITE_ENDPOINT}</span></p>
-                <p><strong>Model:</strong> <span class="endpoint-info">${GRANITE_MODEL_NAME}</span></p>
+                <p><strong>Granite Endpoint:</strong> <span class="endpoint-info">""" + GRANITE_ENDPOINT + """</span></p>
+                <p><strong>Model:</strong> <span class="endpoint-info">""" + GRANITE_MODEL + """</span></p>
+                <p><strong>Status:</strong> <span id="connection-status"><span class="status-indicator status-disconnected"></span>Checking...</span></p>
             </div>
             
             <div class="upload-section">
                 <div class="upload-box">
                     <h3>📄 Document 1</h3>
-                    <input type="file" id="pdf1" accept=".pdf">
-                    <p>Select first PDF</p>
+                    <input type="file" id="pdf1" accept=".pdf" onchange="handleFileSelect(1)">
+                    <p id="file1-name">Select first PDF</p>
                 </div>
                 <div class="upload-box">
                     <h3>📄 Document 2</h3>
-                    <input type="file" id="pdf2" accept=".pdf">
-                    <p>Select second PDF</p>
+                    <input type="file" id="pdf2" accept=".pdf" onchange="handleFileSelect(2)">
+                    <p id="file2-name">Select second PDF</p>
                 </div>
             </div>
             
             <div style="text-align: center;">
-                <button class="btn" onclick="comparePDFs()">🔍 Compare PDFs</button>
+                <button id="compareBtn" class="btn" onclick="comparePDFs()" disabled>🔍 Compare PDFs</button>
+            </div>
+            
+            <div id="loading">
+                <div class="spinner"></div>
+                <p>Analyzing documents with Granite model...</p>
             </div>
             
             <div id="results" style="margin-top: 30px;"></div>
@@ -330,36 +390,114 @@ data:
                 <div class="endpoint-info">GET /health - Health check</div>
                 <div class="endpoint-info">GET /api/docs - Interactive API documentation</div>
                 <div class="endpoint-info">POST /api/v1/compare - Compare two PDFs</div>
+                <div class="endpoint-info">GET /test-granite - Test Granite connection</div>
             </div>
         </div>
         
         <script>
-            function comparePDFs() {
-                const resultsDiv = document.getElementById('results');
-                resultsDiv.innerHTML = '<p>⏳ Comparing PDFs... (Demo mode - showing sample results)</p>';
+            let file1Selected = false;
+            let file2Selected = false;
+            
+            // Check Granite connection on page load
+            window.onload = function() {
+                checkGraniteConnection();
+            };
+            
+            function checkGraniteConnection() {
+                fetch('/test-granite')
+                    .then(response => response.json())
+                    .then(data => {
+                        const statusEl = document.getElementById('connection-status');
+                        if (data.connected) {
+                            statusEl.innerHTML = '<span class="status-indicator status-connected"></span>Connected';
+                        } else {
+                            statusEl.innerHTML = '<span class="status-indicator status-disconnected"></span>Not connected: ' + data.error;
+                        }
+                    })
+                    .catch(error => {
+                        document.getElementById('connection-status').innerHTML = 
+                            '<span class="status-indicator status-disconnected"></span>Error checking connection';
+                    });
+            }
+            
+            function handleFileSelect(fileNum) {
+                if (fileNum === 1) {
+                    file1Selected = document.getElementById('pdf1').files.length > 0;
+                    document.getElementById('file1-name').textContent = 
+                        file1Selected ? document.getElementById('pdf1').files[0].name : 'Select first PDF';
+                } else {
+                    file2Selected = document.getElementById('pdf2').files.length > 0;
+                    document.getElementById('file2-name').textContent = 
+                        file2Selected ? document.getElementById('pdf2').files[0].name : 'Select second PDF';
+                }
                 
-                // Simulate API call with demo results
-                setTimeout(() => {
+                // Enable button only if both files are selected
+                document.getElementById('compareBtn').disabled = !(file1Selected && file2Selected);
+            }
+            
+            async function comparePDFs() {
+                const file1 = document.getElementById('pdf1').files[0];
+                const file2 = document.getElementById('pdf2').files[0];
+                
+                if (!file1 || !file2) {
+                    alert('Please select both PDF files');
+                    return;
+                }
+                
+                const formData = new FormData();
+                formData.append('pdf1', file1);
+                formData.append('pdf2', file2);
+                
+                const resultsDiv = document.getElementById('results');
+                const loadingDiv = document.getElementById('loading');
+                const compareBtn = document.getElementById('compareBtn');
+                
+                // Show loading, hide results
+                loadingDiv.style.display = 'block';
+                resultsDiv.innerHTML = '';
+                compareBtn.disabled = true;
+                
+                try {
+                    const response = await fetch('/api/v1/compare', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    
+                    const data = await response.json();
+                    
+                    if (data.status === 'success') {
+                        resultsDiv.innerHTML = `
+                            <h3>📊 Comparison Results</h3>
+                            <div class="success-box">
+                                <h4>Analysis Complete</h4>
+                                <p><strong>Files compared:</strong> ${file1.name} vs ${file2.name}</p>
+                                <p><strong>Processing time:</strong> ${data.processing_time || 'N/A'} seconds</p>
+                            </div>
+                            <div class="info-box">
+                                <h4>Granite Model Response</h4>
+                                <pre>${JSON.stringify(data.results, null, 2)}</pre>
+                            </div>
+                        `;
+                    } else {
+                        resultsDiv.innerHTML = `
+                            <div class="error-box">
+                                <h4>Error</h4>
+                                <p>${data.message || 'An error occurred during comparison'}</p>
+                                ${data.details ? '<p>Details: ' + data.details + '</p>' : ''}
+                            </div>
+                        `;
+                    }
+                } catch (error) {
                     resultsDiv.innerHTML = `
-                        <h3>📊 Comparison Results (Demo)</h3>
-                        <div class="info-box">
-                            <h4>Basic Analysis</h4>
-                            <p>Similarity: 85.3%</p>
-                            <p>Lines Added: 47</p>
-                            <p>Lines Removed: 23</p>
-                        </div>
-                        <div class="info-box">
-                            <h4>AI Analysis</h4>
-                            <p>The documents show significant updates in the following areas:</p>
-                            <ul>
-                                <li>Updated pricing structure in section 3</li>
-                                <li>New terms and conditions added</li>
-                                <li>Modified delivery timeline</li>
-                            </ul>
-                            <p><em>Note: This is a demo response. Connect to a real Granite model for actual analysis.</em></p>
+                        <div class="error-box">
+                            <h4>Connection Error</h4>
+                            <p>Failed to connect to the API: ${error.message}</p>
                         </div>
                     `;
-                }, 2000);
+                } finally {
+                    loadingDiv.style.display = 'none';
+                    compareBtn.disabled = false;
+                }
             }
         </script>
     </body>
@@ -378,27 +516,127 @@ data:
     async def ready():
         return {"status": "ready"}
     
+    @app.get("/test-granite")
+    async def test_granite():
+        """Test connection to Granite model"""
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                headers = {"Authorization": f"Bearer {API_KEY}"} if API_KEY else {}
+                response = await client.get(f"{GRANITE_ENDPOINT}/health", headers=headers)
+                return {
+                    "connected": response.status_code == 200,
+                    "endpoint": GRANITE_ENDPOINT,
+                    "model": GRANITE_MODEL,
+                    "status_code": response.status_code
+                }
+        except Exception as e:
+            return {
+                "connected": False,
+                "endpoint": GRANITE_ENDPOINT,
+                "model": GRANITE_MODEL,
+                "error": str(e)
+            }
+    
     @app.get("/api/docs")
     async def api_docs():
-        return {"message": "API documentation would be here", "endpoints": ["/health", "/ready", "/api/v1/compare"]}
+        return {
+            "message": "API documentation",
+            "endpoints": {
+                "/health": "Health check",
+                "/ready": "Readiness check",
+                "/test-granite": "Test Granite connection",
+                "/api/v1/compare": "Compare two PDFs"
+            }
+        }
     
     @app.post("/api/v1/compare")
     async def compare_pdfs(pdf1: UploadFile = File(...), pdf2: UploadFile = File(...)):
-        return {
-            "status": "success",
-            "message": "Demo endpoint - PDFs received",
-            "pdf1": pdf1.filename,
-            "pdf2": pdf2.filename,
-            "note": "This is a demo. Connect to real Granite model for actual comparison."
-        }
+        """Compare two PDFs using Granite model"""
+        try:
+            # Read PDF content (simplified for demo)
+            pdf1_content = await pdf1.read()
+            pdf2_content = await pdf2.read()
+            
+            # Prepare request to Granite model
+            prompt = f"""Compare these two documents and provide a detailed analysis:
+            
+            Document 1: {pdf1.filename} (Size: {len(pdf1_content)} bytes)
+            Document 2: {pdf2.filename} (Size: {len(pdf2_content)} bytes)
+            
+            Please analyze:
+            1. Main differences
+            2. Similarities
+            3. Key changes
+            4. Recommendations
+            """
+            
+            # Call Granite model
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                headers = {
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {API_KEY}"
+                }
+                
+                payload = {
+                    "model": GRANITE_MODEL,
+                    "prompt": prompt,
+                    "max_tokens": 500,
+                    "temperature": 0.3
+                }
+                
+                response = await client.post(
+                    f"{GRANITE_ENDPOINT}/v1/completions",
+                    headers=headers,
+                    json=payload
+                )
+                
+                if response.status_code == 200:
+                    result = response.json()
+                    return {
+                        "status": "success",
+                        "message": "PDFs compared successfully",
+                        "pdf1": pdf1.filename,
+                        "pdf2": pdf2.filename,
+                        "results": {
+                            "granite_response": result.get("choices", [{}])[0].get("text", "No response"),
+                            "model_used": GRANITE_MODEL,
+                            "endpoint": GRANITE_ENDPOINT
+                        },
+                        "processing_time": result.get("processing_time", "N/A")
+                    }
+                else:
+                    return {
+                        "status": "error",
+                        "message": f"Granite API error: {response.status_code}",
+                        "details": response.text
+                    }
+                    
+        except httpx.TimeoutException:
+            return {
+                "status": "error",
+                "message": "Timeout connecting to Granite model",
+                "details": f"Could not reach {GRANITE_ENDPOINT} within 30 seconds"
+            }
+        except Exception as e:
+            return {
+                "status": "error",
+                "message": "Error processing PDFs",
+                "details": str(e),
+                "endpoint": GRANITE_ENDPOINT,
+                "model": GRANITE_MODEL
+            }
     
     if __name__ == "__main__":
+        print(f"Starting PDF Comparator Demo")
+        print(f"Granite Endpoint: {GRANITE_ENDPOINT}")
+        print(f"Model: {GRANITE_MODEL}")
         uvicorn.run(app, host="0.0.0.0", port=8000)
   
   requirements.txt: |
     fastapi==0.104.1
     uvicorn==0.24.0
     python-multipart==0.0.6
+    httpx==0.25.2
 EOF
     
     # Create Deployment
@@ -755,6 +993,9 @@ main() {
             
             if [ "$USE_ARGOCD" = true ] && [ "${DEPLOY_METHOD:-argocd}" = "argocd" ]; then
                 deploy_with_argocd
+                # Don't create manual deployment when using ArgoCD
+                print_info "Waiting for ArgoCD to create resources..."
+                sleep 30
             else
                 create_configs
                 deploy_application

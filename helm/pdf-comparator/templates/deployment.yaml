@@ -1,23 +1,24 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "pdf-comparator.fullname" . }}
+  name: pdf-comparator
   labels:
-    {{- include "pdf-comparator.labels" . | nindent 4 }}
+    app: pdf-comparator
 spec:
-  replicas: {{ .Values.app.replicaCount }}
+  replicas: {{ .Values.app.replicaCount | default 1 }}
   selector:
     matchLabels:
-      {{- include "pdf-comparator.labels" . | nindent 6 }}
+      app: pdf-comparator
   template:
     metadata:
       labels:
-        {{- include "pdf-comparator.labels" . | nindent 8 }}
+        app: pdf-comparator
     spec:
       containers:
       - name: pdf-comparator
-        image: "{{ .Values.app.image.repository }}:{{ .Values.app.image.tag }}"
-        imagePullPolicy: {{ .Values.app.image.pullPolicy }}
+        image: "{{ .Values.app.image.repository | default "python" }}:{{ .Values.app.image.tag | default "3.10-slim" }}"
+        imagePullPolicy: Always
+        command: ["sh", "-c", "echo 'Demo deployment' && python -m http.server 8000"]
         ports:
         - containerPort: 8000
           name: http
@@ -28,3 +29,10 @@ spec:
           value: {{ .Values.vllm.model.name | quote }}
         - name: LOG_LEVEL
           value: {{ .Values.config.logLevel | quote }}
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "250m"
