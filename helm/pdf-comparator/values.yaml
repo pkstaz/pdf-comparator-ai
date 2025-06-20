@@ -1,24 +1,77 @@
+# helm/pdf-comparator/values.yaml
 # Default values for pdf-comparator
+
 app:
   replicaCount: 1
+  
   image:
-    repository: python
-    tag: "3.10-slim"
+    # Toggle between internal OpenShift build or external image
+    useInternal: false
+    
+    # External image settings (when useInternal: false)
+    repository: "ghcr.io/pkstaz/pdf-comparator-ai"
+    tag: "latest"
+    
+    # Image pull policy
     pullPolicy: Always
+  
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "100m"
+    limits:
+      memory: "512Mi"
+      cpu: "250m"
+  
+  probes:
+    liveness:
+      initialDelaySeconds: 30
+      periodSeconds: 10
+      timeoutSeconds: 5
+      path: /health
+    readiness:
+      initialDelaySeconds: 10
+      periodSeconds: 5
+      timeoutSeconds: 3
+      path: /ready
 
+# vLLM Configuration
 vllm:
   enabled: false
   endpoint: "http://granite-service:8000"
   model:
     name: "granite-3.1-8b-instruct"
+    maxTokens: 2048
+    temperature: 0.3
 
+# Application Configuration
 config:
   logLevel: INFO
+  environment: production
+  maxPdfSizeMb: 50
+  features:
+    enableCaching: true
+    enableMetrics: true
+    enableSemanticAnalysis: true
 
-route:
-  enabled: true
-  host: ""
-
+# Service Configuration
 service:
   type: ClusterIP
   port: 8000
+  annotations: {}
+
+# Route Configuration (OpenShift)
+route:
+  enabled: true
+  host: ""  # Auto-generated if empty
+  tls:
+    enabled: true
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+
+# Monitoring
+monitoring:
+  enabled: true
+  serviceMonitor:
+    enabled: false
+    interval: 30s

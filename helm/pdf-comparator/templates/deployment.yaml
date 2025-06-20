@@ -1,38 +1,68 @@
+# helm/pdf-comparator/templates/deployment.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: pdf-comparator
   labels:
     app: pdf-comparator
+    app.kubernetes.io/name: {{ include "pdf-comparator.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
 spec:
-  replicas: {{ .Values.app.replicaCount | default 1 }}
+  replicas: {{ .Values.app.replicaCount }}
   selector:
     matchLabels:
       app: pdf-comparator
+      app.kubernetes.io/name: {{ include "pdf-comparator.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
   template:
     metadata:
       labels:
         app: pdf-comparator
+        app.kubernetes.io/name: {{ include "pdf-comparator.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
     spec:
       containers:
       - name: pdf-comparator
-        image: "{{ .Values.app.image.repository | default "python" }}:{{ .Values.app.image.tag | default "3.10-slim" }}"
-        imagePullPolicy: Always
-        command: ["sh", "-c", "echo 'Demo deployment' && python -m http.server 8000"]
+        {{- if .Values.app.image.useInternal }}
+        # Using internally built image from OpenShift ImageStream
+        image: "image-registry.openshift-image-registry.svc:5000/{{ .Release.Namespace }}/pdf-comparator:{{ .Values.app.image.tag | default "latest" }}"
+        {{- else }}
+        # Using external image
+        image: "{{ .Values.app.image.repository }}:{{ .Values.app.image.tag }}"
+        {{- end }}
+        imagePullPolicy: {{ .Values.app.image.pullPolicy }}
         ports:
-        - containerPort: 8000
-          name: http
+        - name: http
+          containerPort: 8000
+          protocol: TCP
         env:
         - name: VLLM_ENDPOINT
           value: {{ .Values.vllm.endpoint | quote }}
         - name: VLLM_MODEL_NAME
           value: {{ .Values.vllm.model.name | quote }}
+        - name: VLLM_MAX_TOKENS
+          value: {{ .Values.vllm.model.maxTokens | default 2048 | quote }}
+        - name: VLLM_TEMPERATURE
+          value: {{ .Values.vllm.model.temperature | default 0.3 | quote }}
         - name: LOG_LEVEL
           value: {{ .Values.config.logLevel | quote }}
+        - name: APP_ENV
+          value: {{ .Values.config.environment | quote }}
+        - name: MAX_PDF_SIZE_MB
+          value: {{ .Values.config.maxPdfSizeMb | default 50 | quote }}
         resources:
-          requests:
-            memory: "256Mi"
-            cpu: "100m"
-          limits:
-            memory: "512Mi"
-            cpu: "250m"
+          {{- toYaml .Values.app.resources | nindent 10 }}
+        livenessProbe:
+          httpGet:
+            path: {{ .Values.app.probes.liveness.path }}
+            port: http
+          initialDelaySeconds: {{ .Values.app.probes.liveness.initialDelaySeconds }}
+          periodSeconds: {{ .Values.app.probes.liveness.periodSeconds }}
+          timeoutSeconds: {{ .Values.app.probes.liveness.timeoutSeconds }}
+        readinessProbe:
+          httpGet:
+            path: {{ .Values.app.probes.readiness.path }}
+            port: http
+          initialDelaySeconds: {{ .Values.app.probes.readiness.initialDelaySeconds }}
+          periodSeconds: {{ .Values.app.probes.readiness.periodSeconds }}
+          timeoutSeconds: {{ .Values.app.probes.readiness.timeoutSeconds }}

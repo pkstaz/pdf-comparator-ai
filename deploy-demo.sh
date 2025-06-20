@@ -1,7 +1,7 @@
 #!/bin/bash
 # PDF Comparator AI - Demo Deployment Script
 # Author: Carlos Estay (cestay@redhat.com)
-# Description: Deploys PDF Comparator AI demo without vLLM (assumes Granite model already deployed)
+# Description: Deploys PDF Comparator AI demo with flexible image management
 
 set -e
 
@@ -12,6 +12,11 @@ GRANITE_ENDPOINT="${GRANITE_ENDPOINT:-http://granite-service.vllm.svc.cluster.lo
 GRANITE_MODEL_NAME="${GRANITE_MODEL_NAME:-granite-3.1-8b-instruct}"
 GIT_REPO="https://github.com/pkstaz/pdf-comparator-ai.git"
 GIT_BRANCH="${GIT_BRANCH:-master}"
+
+# Image configuration
+DEFAULT_EXTERNAL_IMAGE="${EXTERNAL_IMAGE:-ghcr.io/pkstaz/pdf-comparator-ai:latest}"
+INTERNAL_REGISTRY="image-registry.openshift-image-registry.svc:5000"
+USE_INTERNAL_IMAGE=false
 
 # Colors
 GREEN='\033[0;32m'
@@ -802,6 +807,23 @@ EOF
 deploy_with_argocd() {
     print_info "Deploying with ArgoCD..."
     
+    # Determine which image to use
+    if [ "$USE_INTERNAL_IMAGE" = true ]; then
+        IMAGE_PARAMS="
+      - name: app.image.useInternal
+        value: \"true\"
+      - name: app.image.tag
+        value: \"latest\""
+    else
+        IMAGE_PARAMS="
+      - name: app.image.useInternal
+        value: \"false\"
+      - name: app.image.repository
+        value: \"${DEFAULT_EXTERNAL_IMAGE%:*}\"
+      - name: app.image.tag
+        value: \"${DEFAULT_EXTERNAL_IMAGE##*:}\""
+    fi
+    
     # Create ArgoCD Application
     cat <<EOF | oc apply -f - -n openshift-gitops
 apiVersion: argoproj.io/v1alpha1
@@ -829,7 +851,7 @@ spec:
       - name: config.logLevel
         value: "INFO"
       - name: route.enabled
-        value: "true"
+        value: "true"${IMAGE_PARAMS}
       valueFiles:
       - values.yaml
   destination:
@@ -845,85 +867,129 @@ EOF
     
     print_success "ArgoCD Application created"
     print_info "Waiting for ArgoCD to sync..."
-    sleep 10
+    
+    # Wait for application to be synced
+    for i in {1..30}; do
+        if argocd app get pdf-comparator-demo --grpc-web 2>/dev/null | grep -q "Synced"; then
+            print_success "Application synced successfully"
+            break
+        fi
+        echo -n "."
+        sleep 2
+    done
+    echo ""
 }
 
-# Build and push image (optional)
+# Build and push image
 build_image() {
     print_info "Building container image..."
+    
+    USE_INTERNAL_IMAGE=true
     
     # Check if source code exists
     if [ ! -f "Dockerfile" ]; then
         print_warning "Dockerfile not found. Creating a simple one for demo..."
-        
-        # Create a simple Dockerfile for demo
-        cat > Dockerfile.demo <<EOF
-FROM python:3.10-slim
-WORKDIR /app
-RUN pip install fastapi uvicorn
-COPY . .
-CMD ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
-EOF
-        
-        # Create a simple main.py for demo
-        cat > main.py <<EOF
-from fastapi import FastAPI
-
-app = FastAPI(title="PDF Comparator Demo")
-
-@app.get("/")
-def read_root():
-    return {"message": "PDF Comparator AI Demo", "status": "running"}
-
-@app.get("/health")
-def health():
-    return {"status": "healthy"}
-
-@app.get("/ready")
-def ready():
-    return {"status": "ready"}
-EOF
+        create_demo_dockerfile
     fi
-    
-    # Get internal registry
-    INTERNAL_REGISTRY="image-registry.openshift-image-registry.svc:5000"
     
     # Create BuildConfig
     print_info "Creating BuildConfig..."
-    oc new-build --binary --strategy=docker \
-        --name=pdf-comparator \
-        --docker-image=python:3.10-slim \
-        -n ${DEMO_NAMESPACE} 2>/dev/null || true
-    
-    # Wait for builder service account
-    sleep 5
+    if ! oc get bc pdf-comparator -n ${DEMO_NAMESPACE} &> /dev/null; then
+        oc new-build --binary --strategy=docker \
+            --name=pdf-comparator \
+            -n ${DEMO_NAMESPACE}
+    fi
     
     # Start build
     print_info "Starting build..."
-    if [ -f "Dockerfile.demo" ]; then
-        oc start-build pdf-comparator --from-dir=. --dockerfile=Dockerfile.demo --follow -n ${DEMO_NAMESPACE}
-    else
-        oc start-build pdf-comparator --from-dir=. --follow -n ${DEMO_NAMESPACE}
+    oc start-build pdf-comparator --from-dir=. --follow -n ${DEMO_NAMESPACE}
+    
+    # Get the built image reference
+    BUILT_IMAGE="${INTERNAL_REGISTRY}/${DEMO_NAMESPACE}/pdf-comparator:latest"
+    print_success "Image built: ${BUILT_IMAGE}"
+    
+    # If using ArgoCD, update the image parameters
+    if [ "$USE_ARGOCD" = true ]; then
+        print_info "Updating ArgoCD application with built image..."
+        argocd app set pdf-comparator-demo \
+            -p app.image.useInternal=true \
+            -p app.image.tag=latest \
+            --grpc-web
+        
+        # Sync the application
+        argocd app sync pdf-comparator-demo
     fi
-    
-    # Update the deployment to use the built image
-    oc set image deployment/pdf-comparator \
-        pdf-comparator=${INTERNAL_REGISTRY}/${DEMO_NAMESPACE}/pdf-comparator:latest \
-        -n ${DEMO_NAMESPACE}
-    
-    print_success "Image built and deployed successfully"
+}
+
+# Helper function to create demo Dockerfile
+create_demo_dockerfile() {
+    cat > Dockerfile << 'EOF'
+FROM python:3.10-slim
+WORKDIR /app
+
+# Install dependencies
+RUN pip install --no-cache-dir fastapi uvicorn httpx python-multipart
+
+# Create application
+RUN echo 'from fastapi import FastAPI, File, UploadFile\n\
+from fastapi.responses import HTMLResponse\n\
+import os\n\
+\n\
+app = FastAPI(title="PDF Comparator Demo")\n\
+\n\
+@app.get("/", response_class=HTMLResponse)\n\
+async def root():\n\
+    return """<html><body>\n\
+    <h1>PDF Comparator AI Demo</h1>\n\
+    <p>Granite Endpoint: """ + os.getenv("VLLM_ENDPOINT", "Not set") + """</p>\n\
+    <p>Model: """ + os.getenv("VLLM_MODEL_NAME", "Not set") + """</p>\n\
+    </body></html>"""\n\
+\n\
+@app.get("/health")\n\
+async def health():\n\
+    return {"status": "healthy"}\n\
+\n\
+@app.get("/ready")\n\
+async def ready():\n\
+    return {"status": "ready"}\n\
+\n\
+if __name__ == "__main__":\n\
+    import uvicorn\n\
+    uvicorn.run(app, host="0.0.0.0", port=8000)' > main.py
+
+EXPOSE 8000
+CMD ["python", "main.py"]
+EOF
 }
 
 # Wait for deployment
 wait_for_deployment() {
     print_info "Waiting for deployment to be ready..."
     
-    oc wait deployment pdf-comparator \
+    # First check if deployment exists
+    if ! oc get deployment pdf-comparator -n ${DEMO_NAMESPACE} &> /dev/null; then
+        print_error "Deployment 'pdf-comparator' not found!"
+        print_info "Checking what resources exist:"
+        oc get all -n ${DEMO_NAMESPACE}
+        return 1
+    fi
+    
+    # Wait for deployment to be ready
+    if oc wait deployment pdf-comparator \
         -n ${DEMO_NAMESPACE} \
         --for=condition=Available \
-        --timeout=300s
-    
-    print_success "Deployment is ready"
+        --timeout=300s; then
+        print_success "Deployment is ready"
+        
+        # Show pod status
+        print_info "Pod status:"
+        oc get pods -n ${DEMO_NAMESPACE} -l app=pdf-comparator
+    else
+        print_error "Deployment failed to become ready"
+        print_info "Checking pod logs:"
+        oc logs -n ${DEMO_NAMESPACE} -l app=pdf-comparator --tail=50
+        return 1
+    fi
 }
 
 # Display access information
@@ -988,6 +1054,10 @@ main() {
     # Parse arguments
     case "${1:-deploy}" in
         deploy)
+            # Use external pre-built image
+            USE_INTERNAL_IMAGE=false
+            print_info "Using external image: ${DEFAULT_EXTERNAL_IMAGE}"
+            
             check_prerequisites
             create_namespace
             
@@ -1007,12 +1077,25 @@ main() {
             ;;
         
         build-deploy)
+            # Build image locally and deploy
+            USE_INTERNAL_IMAGE=true
+            print_info "Will build image locally and deploy"
+            
             check_prerequisites
             create_namespace
-            create_configs
-            deploy_application
-            create_route
+            
+            # Build image first
             build_image
+            
+            if [ "$USE_ARGOCD" = true ] && [ "${DEPLOY_METHOD:-argocd}" = "argocd" ]; then
+                # ArgoCD parameters already updated in build_image function
+                print_info "ArgoCD updated with internal image"
+            else
+                create_configs
+                deploy_application
+                create_route
+            fi
+            
             wait_for_deployment
             display_info
             ;;
@@ -1033,17 +1116,28 @@ main() {
             echo "Usage: $0 [deploy|build-deploy|cleanup|info|logs]"
             echo ""
             echo "Commands:"
-            echo "  deploy       - Deploy using pre-built image (default)"
-            echo "  build-deploy - Build image and deploy"
+            echo "  deploy       - Deploy using pre-built external image"
+            echo "  build-deploy - Build image in OpenShift and deploy"
             echo "  cleanup      - Remove demo deployment"
             echo "  info         - Display access information"
             echo "  logs         - View application logs"
             echo ""
             echo "Environment Variables:"
+            echo "  EXTERNAL_IMAGE - External image to use (default: ghcr.io/pkstaz/pdf-comparator-ai:latest)"
             echo "  GRANITE_ENDPOINT - Granite model endpoint (default: http://granite-service.vllm.svc.cluster.local:8000)"
             echo "  GRANITE_MODEL_NAME - Model name (default: granite-3.1-8b-instruct)"
             echo "  VLLM_API_KEY - API key for vLLM (default: demo-api-key)"
             echo "  DEPLOY_METHOD - Deployment method: argocd or manual (default: argocd if available)"
+            echo ""
+            echo "Examples:"
+            echo "  # Deploy with default external image"
+            echo "  ./deploy-demo.sh deploy"
+            echo ""
+            echo "  # Deploy with custom external image"
+            echo "  EXTERNAL_IMAGE=quay.io/myorg/pdf-comparator:v1.0 ./deploy-demo.sh deploy"
+            echo ""
+            echo "  # Build and deploy from source"
+            echo "  ./deploy-demo.sh build-deploy"
             exit 1
             ;;
     esac
