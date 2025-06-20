@@ -11,7 +11,7 @@
 
 **An intelligent system for comparing PDF documents using AI with vLLM and LangChain**
 
-[Live Demo](https://pdf-comparator.apps.your-cluster.com) | [Documentation](docs/) | [API Docs](https://pdf-comparator.apps.your-cluster.com/api/docs) | [Issues](https://github.com/pkstaz/pdf-comparator-ai/issues)
+[API Docs](https://pdf-comparator-demo.apps.your-cluster.com/api/docs) | [Issues](https://github.com/pkstaz/pdf-comparator-ai/issues) | [Author](mailto:cestay@redhat.com)
 
 </div>
 
@@ -20,26 +20,18 @@
 - [Overview](#-overview)
 - [Features](#-features)
 - [Architecture](#-architecture)
-- [Quick Start](#-quick-start)
+- [Prerequisites](#-prerequisites)
+- [Quick Deployment](#-quick-deployment)
 - [Configuration](#-configuration)
 - [Usage](#-usage)
-- [Development](#-development)
-- [OpenShift Deployment](#-openshift-deployment)
 - [ArgoCD Customization](#-argocd-customization)
 - [API Documentation](#-api-documentation)
-- [Contributing](#-contributing)
+- [Troubleshooting](#-troubleshooting)
 - [License](#-license)
-- [Author](#-author)
 
 ## 🌟 Overview
 
-PDF Comparator AI is a production-ready demonstration application showcasing how to build an enterprise-grade document analysis system using modern AI technologies:
-
-- **vLLM** with IBM's **Granite 3.1-8b-Instruct** model for high-performance inference
-- **LangChain** for AI orchestration and complex workflows
-- **OpenShift** for enterprise Kubernetes deployment
-- **ArgoCD** for GitOps and dynamic configuration management
-- **FastAPI** for high-performance REST APIs
+PDF Comparator AI is a production-ready demonstration application showcasing how to build an enterprise-grade document analysis system using modern AI technologies. This demo is designed to work with an existing Granite 3.1 model deployment on OpenShift.
 
 ### 🎯 Use Cases
 
@@ -48,7 +40,6 @@ PDF Comparator AI is a production-ready demonstration application showcasing how
 - Policy and procedure revision management
 - Business proposal difference detection
 - Regulatory compliance document auditing
-- Academic paper plagiarism detection
 
 ## ✨ Features
 
@@ -60,8 +51,7 @@ PDF Comparator AI is a production-ready demonstration application showcasing how
 - **Structural Analysis**: Document organization changes
 
 ### 🤖 Advanced AI Capabilities
-- **vLLM Integration**: Optimized inference with GPU acceleration
-- **Granite 3.1-8b-Instruct**: IBM's state-of-the-art language model
+- **vLLM Integration**: Connects to existing Granite model deployment
 - **LangChain Processing**: Complex AI workflow orchestration
 - **Multi-language Support**: English, Spanish, Portuguese
 - **Streaming Responses**: Real-time AI-generated insights
@@ -69,333 +59,258 @@ PDF Comparator AI is a production-ready demonstration application showcasing how
 ### ☁️ Cloud Native Architecture
 - **OpenShift Ready**: Designed for OpenShift 4.x+
 - **GitOps Enabled**: Full ArgoCD integration
-- **Microservices**: Modular, scalable architecture
 - **Container Native**: Optimized container images
-- **12-Factor App**: Following cloud-native best practices
-
-### 🔧 Enterprise Features
-- **High Availability**: Multi-replica deployments
-- **Auto-scaling**: HPA with custom metrics
-- **Observability**: Prometheus metrics & distributed tracing
-- **Security**: RBAC, network policies, secret management
-- **Multi-tenancy**: Environment isolation
+- **Dynamic Configuration**: All settings configurable via ArgoCD
 
 ## 🏗️ Architecture
 
 ```mermaid
 graph TB
-    subgraph "Client Layer"
-        UI[Web UI]
-        API[REST API Client]
-    end
-    
     subgraph "OpenShift Cluster"
-        subgraph "Application Layer"
-            Route[OpenShift Route]
-            SVC[Service/Load Balancer]
-            POD1[App Pod 1]
-            POD2[App Pod 2]
-            PODN[App Pod N]
+        subgraph "PDF Comparator Demo"
+            Route[Route/Ingress]
+            Service[Service]
+            Deployment[Deployment]
+            ConfigMap[ConfigMap]
+            Secret[Secret]
         end
         
-        subgraph "AI Layer"
-            vLLM[vLLM Service]
-            GPU[GPU Nodes]
-        end
-        
-        subgraph "Data Layer"
-            Redis[(Redis Cache)]
-            MinIO[(MinIO Storage)]
+        subgraph "Existing Services"
+            Granite[Granite 3.1 Model<br/>vLLM Service]
         end
     end
     
-    UI --> Route
-    API --> Route
-    Route --> SVC
-    SVC --> POD1
-    SVC --> POD2
-    SVC --> PODN
-    POD1 --> vLLM
-    POD2 --> vLLM
-    POD1 --> Redis
-    POD1 --> MinIO
+    User[User] --> Route
+    Route --> Service
+    Service --> Deployment
+    Deployment --> Granite
+    Deployment --> ConfigMap
+    Deployment --> Secret
 ```
 
-## 🚀 Quick Start
+## 📋 Prerequisites
 
-### Prerequisites
+- **OpenShift 4.x cluster** with cluster-admin or appropriate permissions
+- **Granite 3.1 model** already deployed (vLLM service)
+- **oc CLI** installed and configured
+- **ArgoCD** (optional, will use standard deployment if not available)
 
-- OpenShift 4.x cluster
-- GPU nodes for vLLM (NVIDIA T4 or better)
-- ArgoCD (OpenShift GitOps Operator)
-- `oc` CLI tool
-- `argocd` CLI tool
+## 🚀 Quick Deployment
 
-### 1. Clone and Setup Repository
+### 1. Clone the Repository
 
 ```bash
-# Clone the repository
 git clone https://github.com/pkstaz/pdf-comparator-ai.git
 cd pdf-comparator-ai
-
-# Run the setup script
-./setup-repo.sh
-
-# Deploy to OpenShift
-./deploy.sh
 ```
 
-### 2. Access the Application
+### 2. Deploy the Demo
 
+#### Option A: Using Default Configuration
 ```bash
-# Get the route
-oc get route -n pdf-comparator-prod
-
-# Access the application
-https://pdf-comparator.apps.your-cluster.com
+# Deploy with default Granite endpoint
+./deploy-demo.sh deploy
 ```
 
-### 3. Try the API
-
+#### Option B: With Custom Granite Endpoint
 ```bash
-# Health check
-curl https://pdf-comparator.apps.your-cluster.com/health
+# Set your Granite model endpoint
+export GRANITE_ENDPOINT="http://your-granite-service.your-namespace.svc.cluster.local:8000"
+export GRANITE_MODEL_NAME="granite-3.1-8b-instruct"
 
-# Compare PDFs
-curl -X POST https://pdf-comparator.apps.your-cluster.com/api/v1/compare \
-  -F "pdf1=@document1.pdf" \
-  -F "pdf2=@document2.pdf" \
-  -F "request={\"analysis_types\":[\"semantic\",\"ai\"]}"
+# Deploy
+./deploy-demo.sh deploy
+```
+
+### 3. Access the Application
+
+After deployment completes, you'll see:
+```
+=================================================
+   Deployment Completed Successfully! 🎉
+=================================================
+
+Access Information:
+  Web UI: https://pdf-comparator-demo.apps.your-cluster.com
+  API Docs: https://pdf-comparator-demo.apps.your-cluster.com/api/docs
+  Health Check: https://pdf-comparator-demo.apps.your-cluster.com/health
 ```
 
 ## ⚙️ Configuration
 
-### Environment-Specific Values
+### Environment Variables
 
-The application supports three environments with different configurations:
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `GRANITE_ENDPOINT` | Granite model service URL | `http://granite-service.vllm.svc.cluster.local:8000` |
+| `GRANITE_MODEL_NAME` | Model identifier | `granite-3.1-8b-instruct` |
+| `VLLM_API_KEY` | API key for vLLM | `demo-api-key` |
+| `DEMO_NAMESPACE` | Namespace for deployment | `pdf-comparator-demo` |
 
-| Environment | Replicas | Resources | Features |
-|-------------|----------|-----------|----------|
-| Development | 1 | 512Mi/250m | Debug enabled |
-| Staging | 2 | 1Gi/500m | Standard features |
-| Production | 4 | 2Gi/1000m | HA & Autoscaling |
-
-### Key Configuration Parameters
-
-All parameters can be modified via ArgoCD UI or CLI:
-
-```yaml
-# Core Settings
-app.replicaCount: 2
-config.logLevel: INFO
-
-# vLLM Configuration
-vllm.endpoint: http://vllm-service:8000
-vllm.model.name: granite-3.1-8b-instruct
-vllm.model.maxTokens: 2048
-vllm.model.temperature: 0.3
-
-# Features
-config.features.enableCaching: true
-config.features.enableSemanticAnalysis: true
-```
-
-See [ArgoCD Customization](#argocd-customization) for complete parameter list.
-
-## 🔧 Development
-
-### Local Development Setup
+### Deployment Commands
 
 ```bash
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate
+# Deploy using pre-built image
+./deploy-demo.sh deploy
 
-# Install dependencies
-pip install -r requirements.txt
-pip install -r requirements-dev.txt
+# Build image locally and deploy
+./deploy-demo.sh build-deploy
 
-# Run locally
-python main.py api --debug
+# View deployment information
+./deploy-demo.sh info
+
+# View application logs
+./deploy-demo.sh logs
+
+# Remove demo deployment
+./deploy-demo.sh cleanup
 ```
 
-### Running with Docker
+## 🔧 Usage
 
+### Web Interface
+
+1. Access the web UI at the provided URL
+2. Upload two PDF documents
+3. Select analysis types
+4. View comparison results
+
+### API Usage
+
+#### Health Check
 ```bash
-# Build image
-docker build -t pdf-comparator:dev .
-
-# Run with docker-compose
-docker-compose up
+curl https://pdf-comparator-demo.apps.your-cluster.com/health
 ```
 
-### Testing
-
+#### Compare PDFs
 ```bash
-# Run unit tests
-pytest tests/
-
-# Run with coverage
-pytest tests/ --cov=src --cov-report=html
-
-# Run integration tests
-pytest tests/integration/ -m integration
+curl -X POST https://pdf-comparator-demo.apps.your-cluster.com/api/v1/compare \
+  -F "pdf1=@document1.pdf" \
+  -F "pdf2=@document2.pdf" \
+  -F 'request={"analysis_types":["semantic","ai"],"language":"en"}'
 ```
 
-## 🚢 OpenShift Deployment
-
-### Automated Deployment
-
-```bash
-# Deploy all environments
-./deploy.sh
-
-# Deploy specific environment
-./deploy.sh --env staging
-
-# Deploy with image build
-./deploy.sh --build
-```
-
-### Manual Deployment Steps
-
-1. **Create Projects**
-```bash
-oc new-project pdf-comparator-prod
-oc new-project vllm-prod
-```
-
-2. **Deploy ArgoCD Applications**
-```bash
-oc apply -f k8s/argocd/
-```
-
-3. **Monitor Deployment**
-```bash
-# Check application status
-argocd app list | grep pdf-comparator
-
-# View logs
-oc logs -f -n pdf-comparator-prod -l app=pdf-comparator
-```
+#### Interactive API Documentation
+Visit: `https://pdf-comparator-demo.apps.your-cluster.com/api/docs`
 
 ## 🎛️ ArgoCD Customization
 
-### Using ArgoCD UI
-
-1. Access ArgoCD UI
-2. Navigate to the application
-3. Click "App Details" → "Parameters"
-4. Modify any parameter
-5. Save and sync
+If ArgoCD is available, the deployment will automatically create an ArgoCD Application. You can then customize all parameters through the ArgoCD UI or CLI.
 
 ### Using ArgoCD CLI
 
 ```bash
 # View current parameters
-argocd app get prod-pdf-comparator --show-params
+argocd app get pdf-comparator-demo --show-params
 
-# Update model temperature
-argocd app set prod-pdf-comparator \
-  -p vllm.model.temperature=0.2
+# Update Granite endpoint
+argocd app set pdf-comparator-demo \
+  -p vllm.endpoint=http://new-granite-service:8000
+
+# Change replica count
+argocd app set pdf-comparator-demo \
+  -p app.replicaCount=2
 
 # Update multiple parameters
-argocd app set prod-pdf-comparator \
-  -p app.replicaCount=6 \
-  -p config.logLevel=WARNING \
-  -p autoscaling.enabled=true
+argocd app set pdf-comparator-demo \
+  -p config.logLevel=DEBUG \
+  -p config.maxPdfSizeMb=100 \
+  -p config.features.enableCaching=true
 
 # Sync changes
-argocd app sync prod-pdf-comparator
+argocd app sync pdf-comparator-demo
 ```
 
-### Available Parameters
+### Key Parameters
 
-<details>
-<summary>Click to expand full parameter list</summary>
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `app.replicaCount` | Number of pods | 1 |
+| `config.logLevel` | Logging level | INFO |
+| `vllm.endpoint` | Granite service URL | (from env) |
+| `vllm.model.temperature` | Model temperature | 0.3 |
+| `config.maxPdfSizeMb` | Max PDF size | 50 |
 
-| Parameter | Description | Default | Range |
-|-----------|-------------|---------|-------|
-| `app.replicaCount` | Number of app replicas | 2 | 1-10 |
-| `config.logLevel` | Logging level | INFO | DEBUG, INFO, WARNING, ERROR |
-| `vllm.model.temperature` | Model temperature | 0.3 | 0.0-1.0 |
-| `vllm.model.maxTokens` | Max response tokens | 2048 | 512-8192 |
-| `config.maxPdfSizeMb` | Max PDF size | 50 | 1-100 |
-| `autoscaling.enabled` | Enable HPA | false | true/false |
-| `config.features.*` | Feature flags | varies | true/false |
-
-See [k8s/argocd/parameter-catalog.yaml](k8s/argocd/parameter-catalog.yaml) for complete list.
-
-</details>
+See [ArgoCD documentation](docs/argocd-parameters.md) for complete parameter list.
 
 ## 📡 API Documentation
 
-### Interactive API Docs
+### Endpoints
 
-Access the interactive API documentation at:
-- Swagger UI: `https://pdf-comparator.apps.your-cluster.com/api/docs`
-- ReDoc: `https://pdf-comparator.apps.your-cluster.com/api/redoc`
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/health` | Health check |
+| GET | `/ready` | Readiness check |
+| GET | `/metrics` | Prometheus metrics |
+| POST | `/api/v1/compare` | Compare two PDFs |
+| POST | `/api/v1/chat` | Chat interface |
+| GET | `/api/docs` | Swagger UI |
+| GET | `/api/redoc` | ReDoc UI |
 
-### Key Endpoints
-
-```bash
-# Health Check
-GET /health
-
-# Compare PDFs
-POST /api/v1/compare
-Content-Type: multipart/form-data
-- pdf1: file
-- pdf2: file
-- request: {
-    "analysis_types": ["basic", "semantic", "ai"],
-    "language": "en",
-    "domain": "general"
-  }
-
-# Chat Interface
-POST /api/v1/chat
-Content-Type: application/json
-{
-  "message": "What are the main differences?",
-  "session_id": "optional-session-id"
-}
-```
-
-### Response Format
+### Example Response
 
 ```json
 {
   "request_id": "req_1234567890",
   "status": "success",
   "results": {
-    "basic": { ... },
-    "semantic": { ... },
-    "ai": { ... }
+    "basic": {
+      "similarity_ratio": 0.85,
+      "added_lines": 45,
+      "removed_lines": 23
+    },
+    "semantic": {
+      "overall_similarity": 0.92
+    },
+    "ai": {
+      "comparison": "The documents show significant updates in sections 2 and 3...",
+      "key_differences": ["Updated pricing", "New terms"],
+      "recommendations": ["Review pricing changes", "Update internal docs"]
+    }
   },
-  "execution_time": 2.34,
-  "metadata": { ... }
+  "execution_time": 2.34
 }
 ```
 
-## 🤝 Contributing
+## 🔍 Troubleshooting
 
-We welcome contributions! This is a public demo designed to be shared and improved by the community.
+### Common Issues
 
-### How to Contribute
+#### 1. Granite endpoint not reachable
+```bash
+# Check if Granite service exists
+oc get svc -A | grep granite
 
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+# Test connectivity
+oc run test-curl --image=curlimages/curl --rm -it -- \
+  curl http://granite-service.vllm.svc.cluster.local:8000/health
+```
 
-### Development Guidelines
+#### 2. Deployment fails
+```bash
+# Check deployment status
+oc get pods -n pdf-comparator-demo
 
-- Follow PEP 8 for Python code
-- Add tests for new features
-- Update documentation
-- Use conventional commits
+# View pod logs
+oc logs -n pdf-comparator-demo deployment/pdf-comparator
+
+# Check events
+oc get events -n pdf-comparator-demo --sort-by='.lastTimestamp'
+```
+
+#### 3. ArgoCD sync issues
+```bash
+# Force sync
+argocd app sync pdf-comparator-demo --force
+
+# Check sync status
+argocd app get pdf-comparator-demo
+```
+
+### Getting Help
+
+- Create an issue: [GitHub Issues](https://github.com/pkstaz/pdf-comparator-ai/issues)
+- Contact: [cestay@redhat.com](mailto:cestay@redhat.com)
 
 ## 📄 License
 
