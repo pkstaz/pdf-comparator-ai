@@ -102,6 +102,36 @@ create_namespace() {
             environment=demo \
             --overwrite
     fi
+    
+    # Add namespace to user's favorites in OpenShift Console
+    print_info "Adding namespace to console favorites..."
+    
+    # Get current user
+    CURRENT_USER=$(oc whoami)
+    
+    # Create or update the console user settings to add namespace as favorite
+    # This uses the console.openshift.io/v1 API
+    cat <<EOF | oc apply -f -
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: user-settings-${CURRENT_USER//[^a-zA-Z0-9-]/-}
+  namespace: openshift-console-user-settings
+  labels:
+    console.openshift.io/user-settings: "true"
+    console.openshift.io/user: "${CURRENT_USER}"
+data:
+  favorite-namespaces: |
+    - ${DEMO_NAMESPACE}
+EOF
+    
+    # Alternative method using console preferences
+    # This adds the namespace to the pinned resources
+    oc annotate namespace ${DEMO_NAMESPACE} \
+        openshift.io/display-name="PDF Comparator Demo ⭐" \
+        --overwrite
+    
+    print_success "Namespace added to favorites"
 }
 
 # Create ConfigMaps and Secrets
