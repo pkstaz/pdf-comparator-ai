@@ -1,0 +1,42 @@
+apiVersion: v2
+name: pdf-comparator
+description: PDF Comparator AI - Intelligent PDF comparison using vLLM and LangChain
+type: application
+version: 2.0.0
+appVersion: "2.0.0"
+keywords:
+  - pdf
+  - ai
+  - vllm
+  - langchain
+  - granite
+  - openshift
+maintainers:
+  - name: Carlos Estay
+    email: cestay@redhat.com
+    url: https://github.com/pkstaz
+home: https://github.com/pkstaz/pdf-comparator-ai
+sources:
+  - https://github.com/pkstaz/pdf-comparator-ai
+icon: https://raw.githubusercontent.com/pkstaz/pdf-comparator-ai/master/docs/images/logo.png
+annotations:
+  # OpenShift specific annotations
+  openshift.io/display-name: "PDF Comparator AI"
+  openshift.io/documentation-url: "https://github.com/pkstaz/pdf-comparator-ai/blob/master/README.md"
+  openshift.io/provider-display-name: "Carlos Estay"
+  # Chart specific annotations
+  artifacthub.io/changes: |
+    - kind: added
+      description: Initial release with vLLM integration
+    - kind: added
+      description: Support for Granite 3.1 model
+    - kind: added
+      description: LangChain integration
+  artifacthub.io/containsSecurityUpdates: "false"
+  artifacthub.io/license: MIT
+  artifacthub.io/prerelease: "false"
+  artifacthub.io/recommendations: |
+    - url: https://github.com/vllm-project/vllm
+      title: vLLM Project
+    - url: https://www.langchain.com/
+      title: LangChain

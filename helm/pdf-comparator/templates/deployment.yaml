@@ -1,0 +1,30 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "pdf-comparator.fullname" . }}
+  labels:
+    {{- include "pdf-comparator.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.app.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "pdf-comparator.labels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "pdf-comparator.labels" . | nindent 8 }}
+    spec:
+      containers:
+      - name: pdf-comparator
+        image: "{{ .Values.app.image.repository }}:{{ .Values.app.image.tag }}"
+        imagePullPolicy: {{ .Values.app.image.pullPolicy }}
+        ports:
+        - containerPort: 8000
+          name: http
+        env:
+        - name: VLLM_ENDPOINT
+          value: {{ .Values.vllm.endpoint | quote }}
+        - name: VLLM_MODEL_NAME
+          value: {{ .Values.vllm.model.name | quote }}
+        - name: LOG_LEVEL
+          value: {{ .Values.config.logLevel | quote }}

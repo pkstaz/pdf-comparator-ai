@@ -1,0 +1,25 @@
+# Default values for pdf-comparator
+app:
+  replicaCount: 1
+  image:
+    repository: python
+    tag: "3.10-slim"
+    pullPolicy: Always
+
+vllm:
+  enabled: false
+  endpoint: "http://granite-service:8000"
+  model:
+    name: "granite-3.1-8b-instruct"
+
+config:
+  logLevel: INFO
+
+route:
+  enabled: true
+  host: ""
+
+service:
+  type: ClusterIP
+  port: 8000
+EOF
