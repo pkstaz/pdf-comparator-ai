@@ -22,4 +22,3 @@ route:
 service:
   type: ClusterIP
   port: 8000
-EOF
